@@ -110,7 +110,7 @@ class Method:  # pylint: disable=E1101,R0903,W0201
                 "notifications_stream", {
                     "project_id": project_id,
                     "user_id": user_id,
-                    "meta": {},
+                    "meta": {"message": "Project was successfully created"},
                     "event_type": "private_project_created",
                 }
             )
