@@ -55,12 +55,23 @@ def filter_for_check_public_role(user_id):
         from tools import elitea_config  # pylint: disable=C0415,E0401
         public_project_id = int(elitea_config.get("ai_project_id", 1))
 
+        support_project_id = None
+        try:
+            support_config = rpc_timeout(2).support_assistant_get_config()
+            support_project_id = support_config.get('project_id')
+        except Exception:
+            pass
+
         def check_public_project_allowed(project) -> bool:
-            if project['id'] == public_project_id:
+            project_id = project['id']
+            hidden_projects = [public_project_id, support_project_id]
+
+            if project_id in hidden_projects:
                 roles = {role['name'] for role in rpc_timeout(
                     2
-                ).admin_get_user_roles(public_project_id, user_id)}
+                ).admin_get_user_roles(project_id, user_id)}
                 return 'admin' in roles
+
             return True
     except Empty as e:
         log.error(e)
