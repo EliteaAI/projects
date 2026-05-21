@@ -177,7 +177,10 @@ class AdminAPI(api_tools.APIModeHandler):
             status_code = 400
         statuses: List[dict] = [step.status['created'] for step in progress]
         rollback_steps: List[dict] = [step.status['deleted'] for step in rollback_progress]
-        return {'steps': statuses, 'rollback_steps': rollback_steps}, status_code
+        result = {'steps': statuses, 'rollback_steps': rollback_steps}
+        if status_code == 201 and context.get('project'):
+            result['id'] = context['project'].id
+        return result, status_code
 
     @auth.decorators.check_api({
         "permissions": ["projects.projects.project.edit"],
