@@ -96,7 +96,8 @@ class ProjectAPI(api_tools.APIModeHandler):
     @register_openapi(
         name="Get Project Details",
         description="Retrieve a list of projects associated with the current user.",
-        mcp_tool=True
+        mcp_tool=True,
+        available_to_users=True,
     )
     @auth.decorators.check_api({
         "permissions": ["projects.projects.project.view"],
