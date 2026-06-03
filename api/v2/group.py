@@ -1,7 +1,7 @@
 from flask import request
 from pydantic.v1 import ValidationError
 
-from tools import auth, db, api_tools, serialize
+from tools import auth, db, api_tools, serialize, register_openapi
 
 from ...models.pd.group import GroupCreateModel
 from ...models.pd.project import ProjectListModel
@@ -22,6 +22,15 @@ class API(api_tools.APIBase):  # pylint: disable=R0903
         "prompt_lib": PromptLibAPI
     }
 
+    @register_openapi(
+        name="Add Group to Project",
+        description="Create a new group (if needed) and add it to the specified project.",
+        parameters=[
+            {"name": "project_id", "in": "path", "schema": {"type": "integer"},
+             "description": "Project identifier."},
+        ],
+        request_body=GroupCreateModel,
+    )
     @auth.decorators.check_api({
         "permissions": ["projects.projects.group.create"],
         "recommended_roles": {
@@ -60,6 +69,16 @@ class API(api_tools.APIBase):  # pylint: disable=R0903
             serialized = serialize(ProjectListModel.from_orm(project))
         return serialized, 201
 
+    @register_openapi(
+        name="Remove Group from Project",
+        description="Remove a group from a project.",
+        parameters=[
+            {"name": "project_id", "in": "path", "schema": {"type": "integer"},
+             "description": "Project identifier."},
+            {"name": "group_id", "in": "path", "schema": {"type": "integer"},
+             "description": "Group identifier."},
+        ],
+    )
     @auth.decorators.check_api({
         "permissions": ["projects.projects.group.delete"],
         "recommended_roles": {

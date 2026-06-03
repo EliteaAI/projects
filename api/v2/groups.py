@@ -1,5 +1,5 @@
 from flask import request
-from tools import auth, db, api_tools, serialize
+from tools import auth, db, api_tools, serialize, register_openapi
 
 from pydantic.v1 import ValidationError
 from ...models.pd.group import GroupModifyModel
@@ -21,11 +21,28 @@ class API(api_tools.APIBase):  # pylint: disable=R0903
         "prompt_lib": PromptLibAPI
     }
 
+    @register_openapi(
+        name="List Project Groups",
+        description="List all project groups with their associated projects.",
+        parameters=[
+            {"name": "query", "in": "query", "schema": {"type": "string"},
+             "description": "Filter groups by name."},
+        ],
+    )
     def get(self, **kwargs):
         q = request.args.get('query')
         project_with_group = self.module.get_all_groups(name_filter=q)
         return project_with_group, 200
 
+    @register_openapi(
+        name="Set Project Groups",
+        description="Assign a project to a set of groups, creating new groups as needed.",
+        parameters=[
+            {"name": "project_id", "in": "path", "schema": {"type": "integer"},
+             "description": "Project identifier."},
+        ],
+        request_body=GroupModifyModel,
+    )
     @auth.decorators.check_api({
         "permissions": ["projects.projects.groups.edit"],
         "recommended_roles": {

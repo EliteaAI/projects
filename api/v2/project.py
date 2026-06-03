@@ -122,6 +122,18 @@ class ProjectAPI(api_tools.APIModeHandler):
 
 
 class AdminAPI(api_tools.APIModeHandler):
+    @register_openapi(
+        name="List Projects (Admin)",
+        description="List projects for the current user. Admin mode.",
+        parameters=[
+            {"name": "offset", "in": "query", "schema": {"type": "integer"},
+             "description": "Pagination offset."},
+            {"name": "limit", "in": "query", "schema": {"type": "integer"},
+             "description": "Number of projects to return."},
+            {"name": "search", "in": "query", "schema": {"type": "string"},
+             "description": "Search query string."},
+        ],
+    )
     @auth.decorators.check_api({
         "permissions": ["projects.projects.project.view"],
         "recommended_roles": {
@@ -141,6 +153,11 @@ class AdminAPI(api_tools.APIModeHandler):
             user_id, offset_=offset_, limit_=limit_, search_=search_
         ), 200
 
+    @register_openapi(
+        name="Create Project",
+        description="Create a new project.",
+        request_body=ProjectCreatePD,
+    )
     @auth.decorators.check_api({
         "permissions": ["projects.projects.project.create"],
         "recommended_roles": {
@@ -183,6 +200,14 @@ class AdminAPI(api_tools.APIModeHandler):
             result['id'] = context['project'].id
         return result, status_code
 
+    @register_openapi(
+        name="Update Project",
+        description="Update an existing project's name, owner, or plugins.",
+        parameters=[
+            {"name": "project_id", "in": "path", "schema": {"type": "integer"},
+             "description": "Project identifier."},
+        ],
+    )
     @auth.decorators.check_api({
         "permissions": ["projects.projects.project.edit"],
         "recommended_roles": {
@@ -206,6 +231,14 @@ class AdminAPI(api_tools.APIModeHandler):
         project.commit()
         return project.to_json(exclude_fields=Project.API_EXCLUDE_FIELDS), 200
 
+    @register_openapi(
+        name="Delete Project",
+        description="Delete a project and all its associated resources.",
+        parameters=[
+            {"name": "project_id", "in": "path", "schema": {"type": "integer"},
+             "description": "Project identifier."},
+        ],
+    )
     @auth.decorators.check_api({
         "permissions": ["projects.projects.project.delete"],
         "recommended_roles": {

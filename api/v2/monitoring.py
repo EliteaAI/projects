@@ -1,4 +1,4 @@
-from tools import auth, db, api_tools, serialize, config as c
+from tools import auth, db, api_tools, serialize, config as c, register_openapi
 
 from ...models.project import ProjectGroup, Project
 
@@ -16,6 +16,10 @@ class API(api_tools.APIBase):
         "prompt_lib": PromptLibAPI
     }
 
+    @register_openapi(
+        name="Get Projects Monitoring",
+        description="Get all project groups and their associated projects for the current user.",
+    )
     def get(self, **kwargs) -> tuple[dict, int]:
         user_id = auth.current_user().get('id')
         user_projects = self.module.list_user_projects(user_id)

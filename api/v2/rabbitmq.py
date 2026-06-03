@@ -4,7 +4,7 @@ from flask import request
 
 import redis
 from pylon.core.tools import web, log
-from tools import api_tools, constants as c
+from tools import api_tools, constants as c, register_openapi
 
 from ...models.project import Project
 
@@ -15,6 +15,14 @@ class API(api_tools.APIBase):
         '<string:mode>/<string:vhost>',
     ]
 
+    @register_openapi(
+        name="Get RabbitMQ Queues",
+        description="Get all RabbitMQ queues for a vhost.",
+        parameters=[
+            {"name": "vhost", "in": "path", "schema": {"type": "string"},
+             "description": "RabbitMQ virtual host."},
+        ],
+    )
     def get(self, vhost, **kwargs):
         return self.module.get_rabbit_queues(vhost), 200
 
@@ -35,6 +43,10 @@ class API(api_tools.APIBase):
             _rc.set(name=k, value=json.dumps(v))
         return None, 200
 
+    @register_openapi(
+        name="List All Project IDs (Admin)",
+        description="List all project IDs. Admin mode only.",
+    )
     def patch(self, **kwargs):
         if kwargs.get('mode') == 'administration':
             return list(i[0] for i in Project.query.with_entities(Project.id).all()), 200
