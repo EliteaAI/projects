@@ -57,8 +57,10 @@ def filter_for_check_public_role(user_id):
 
         support_project_id = None
         try:
-            support_config = rpc_timeout(2).support_assistant_get_config()
-            support_project_id = support_config.get('project_id')
+            from tools import context as pylon_context  # pylint: disable=C0415
+            if "support_assistant" in pylon_context.module_manager.modules:
+                support_config = rpc_timeout(2).support_assistant_get_config()
+                support_project_id = support_config.get('project_id')
         except Exception:
             pass
 
