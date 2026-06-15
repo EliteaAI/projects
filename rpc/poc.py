@@ -13,7 +13,7 @@ from pylon.core.tools import web
 from pylon.core.tools import log
 
 import cachetools
-from ..api.v1.project import delete_project
+from ..api.v2.project import delete_project
 from ..models.project import Project
 from ..models.pd.project import ProjectCreatePD
 from ..utils.project_steps import create_project
