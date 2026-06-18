@@ -97,9 +97,8 @@ class Method:  # pylint: disable=E1101,R0903,W0201
         project_created = False
         #
         with self.projects_lock:
-            log.info("Creating private project for user ID (if not exists): %s", user_id)
-            #
             if create_personal_project(user_id=user_id, module=self) is True:
+                log.info("Created private project for user ID: %s", user_id)
                 self.invalidate_user_caches(user_id)
                 project_created = True
         #
