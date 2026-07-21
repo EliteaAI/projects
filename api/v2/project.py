@@ -96,9 +96,10 @@ def do_project_list(user_id, offset_, limit_, search_, check_public_role, module
 
 class ProjectAPI(api_tools.APIModeHandler):
     @register_openapi(
-        name="Get Project Details",
-        description="Retrieve details of a specific project by project_id for the current user.",
+        name="List Projects",
+        description="List the projects the current user can access, with optional pagination and name search.",
         mcp_tool=True,
+        mcp_description="Use this tool to list the projects the current user can access, with optional pagination (offset, limit) and name search. It returns each project's id, name, and metadata — the ids other Elitea tools need. Do not use it to create, modify, or delete projects. Read-only.",
         available_to_users=True,
     )
     @auth.decorators.check_api({
