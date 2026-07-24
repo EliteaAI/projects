@@ -72,7 +72,7 @@ class Module(module.ModuleModel):
             self.create_scheduling()
         except Empty:
             ...
-        # self.descriptor.register_tool('projects', self)
+        self.descriptor.register_tool('projects', self)
 
         # rabbit_tools.create_administration_user_and_vhost()
 
