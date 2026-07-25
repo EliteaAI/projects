@@ -101,13 +101,21 @@ class ProjectAPI(api_tools.APIModeHandler):
         mcp_tool=True,
         mcp_description="Use this tool to list the projects the current user can access, with optional pagination (offset, limit) and name search. It returns each project's id, name, and metadata — the ids other Elitea tools need. Do not use it to create, modify, or delete projects. Read-only.",
         available_to_users=True,
+        # Pin the MCP tool to the mode-only route (…/default) instead of the auto-picked
+        # …/<mode>/<project_id> variant, so the schema doesn't demand a project_id.
+        # 'mode' is given a default by the framework and hidden from the model.
+        path_suffix_override="<string:mode>",
+        # Match the tool's description: expose pagination/search as OPTIONAL query args.
+        parameters=[
+            {"name": "offset", "in": "query", "schema": {"type": "integer"},
+             "description": "Pagination offset."},
+            {"name": "limit", "in": "query", "schema": {"type": "integer"},
+             "description": "Number of projects to return."},
+            {"name": "search", "in": "query", "schema": {"type": "string"},
+             "description": "Filter projects by name."},
+        ],
     )
-    @auth.decorators.check_api({
-        "permissions": ["projects.projects.project.view"],
-        "recommended_roles": {
-            "default": {"admin": True, "viewer": True, "editor": True},
-            "developer": {"admin": True, "viewer": True, "editor": True},
-        }})
+    # No project-scoped gate on purpose: user-global listing, already membership-filtered in list_user_projects (a per-project check_api 403s over MCP).
     @api_tools.endpoint_metrics
     def get(self, **kwargs) -> tuple[dict, int] | tuple[list, int]:
         user_id = auth.current_user().get("id")
