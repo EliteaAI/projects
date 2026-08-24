@@ -17,7 +17,12 @@ class RPC:
     @web.rpc('project_get_or_404', 'get_or_404')
     @rpc_tools.wrap_exceptions(RuntimeError)
     def prj_or_404(self, project_id):
-        return Project.query.get_or_404(project_id)
+        # Ends the read's transaction right away; expire_on_commit=False keeps the
+        # returned instance's already-loaded attributes usable after this commit.
+        try:
+            return Project.query.get_or_404(project_id)
+        finally:
+            db.session.commit()
 
     @web.rpc('project_get_by_id')
     @rpc_tools.wrap_exceptions(RuntimeError)
