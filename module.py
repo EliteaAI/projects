@@ -40,6 +40,8 @@ class Module(module.ModuleModel):
         #
         self.user_projects_cache = cachetools.TTLCache(maxsize=20480, ttl=300)
         self.check_public_role_cache = cachetools.TTLCache(maxsize=20480, ttl=300)
+        # Project kind is immutable after creation, so a long TTL is safe.
+        self.project_kind_cache = cachetools.TTLCache(maxsize=20480, ttl=3600)
 
     def init(self):
         """ Init module """
