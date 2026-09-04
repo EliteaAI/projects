@@ -18,6 +18,7 @@ from ..models.project import Project
 from ..models.pd.project import ProjectCreatePD
 from ..utils.project_steps import create_project
 from ..constants import (
+    PROJECT_PERSONAL_NAME_PREFIX,
     PROJECT_PERSONAL_NAME_TEMPLATE,
     PROJECT_USER_EMAIL_TEMPLATE,
     PROJECT_USER_NAME_PREFIX
@@ -236,6 +237,37 @@ class RPC:
                     match = re.match(rf"^{system_user_email}$", user['email'])
                     if match:
                         return int(match.groups()[0])
+
+    @web.rpc("projects_get_project_kind", "get_project_kind")
+    @rpc_tools.wrap_exceptions(RuntimeError)
+    @cachetools.cached(cache=this.module.project_kind_cache)
+    def get_project_kind(self, project_id: int) -> str:
+        """Canonical project classification: 'team' | 'personal' | 'public'.
+
+        Replaces the `project_user_%` name matching duplicated across admin/projects.
+        """
+        if not project_id:
+            return 'team'
+        #
+        try:
+            from tools import elitea_config  # pylint: disable=C0415,E0401
+            public_project_id = int(elitea_config.get("ai_project_id", 1))
+        except Exception:  # pylint: disable=W0703
+            public_project_id = 0
+        if public_project_id and int(project_id) == public_project_id:
+            return 'public'
+        #
+        with db.with_project_schema_session(None) as session:
+            name = session.query(Project.name).where(Project.id == project_id).scalar()
+        #
+        if name and name.startswith(PROJECT_PERSONAL_NAME_PREFIX):
+            return 'personal'
+        return 'team'
+
+    @web.rpc("projects_is_team_project", "is_team_project")
+    @rpc_tools.wrap_exceptions(RuntimeError)
+    def is_team_project(self, project_id: int) -> bool:
+        return self.get_project_kind(project_id) == 'team'
 
     @web.rpc("projects_get_personal_project_ids", "get_personal_project_ids")
     @rpc_tools.wrap_exceptions(RuntimeError)
