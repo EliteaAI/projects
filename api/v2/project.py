@@ -153,7 +153,7 @@ class AdminAPI(api_tools.APIModeHandler):
         search_ = request.args.get("search")
         #
         return self.module.list_user_projects(
-            user_id, offset_=offset_, limit_=limit_, search_=search_
+            user_id, offset_=offset_, limit_=limit_, search_=search_, include_suspended=True
         ), 200
 
     @register_openapi(

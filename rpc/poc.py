@@ -111,7 +111,7 @@ class RPC:
     @web.rpc("list_user_projects", "list_user_projects")
     @rpc_tools.wrap_exceptions(RuntimeError)
     @cachetools.cached(cache=this.module.user_projects_cache)
-    def list_user_projects(self, user_id: int, **kwargs) -> list:
+    def list_user_projects(self, user_id: int, include_suspended: bool = False, **kwargs) -> list:
         all_projects = self.list(**kwargs)
         #
         user_projects = []
@@ -119,6 +119,8 @@ class RPC:
         project_map = {}
         #
         for project in all_projects:
+            if not include_suspended and project.get("suspended"):
+                continue
             check_ids.append(project["id"])
             project_map[project["id"]] = project
         #
