@@ -106,7 +106,6 @@ class ProjectAPI(api_tools.APIModeHandler):
         "permissions": ["projects.projects.project.view"],
         "recommended_roles": {
             "default": {"admin": True, "viewer": True, "editor": True},
-            "developer": {"admin": True, "viewer": True, "editor": True},
         }})
     @api_tools.endpoint_metrics
     def get(self, **kwargs) -> tuple[dict, int] | tuple[list, int]:
@@ -166,7 +165,6 @@ class AdminAPI(api_tools.APIModeHandler):
         "recommended_roles": {
             "administration": {"admin": True, "viewer": False, "editor": False},
             "default": {"admin": False, "viewer": False, "editor": False},
-            "developer": {"admin": False, "viewer": False, "editor": False},
         }})
     @api_tools.endpoint_metrics
     def post(self, **kwargs) -> tuple[dict, int]:
@@ -216,7 +214,6 @@ class AdminAPI(api_tools.APIModeHandler):
         "recommended_roles": {
             "administration": {"admin": True, "viewer": False, "editor": False},
             "default": {"admin": False, "viewer": False, "editor": False},
-            "developer": {"admin": False, "viewer": False, "editor": False},
         }})
     @api_tools.endpoint_metrics
     def put(self, project_id: Optional[int] = None) -> Tuple[dict, int]:
@@ -247,7 +244,6 @@ class AdminAPI(api_tools.APIModeHandler):
         "recommended_roles": {
             "administration": {"admin": True, "viewer": False, "editor": False},
             "default": {"admin": False, "viewer": False, "editor": False},
-            "developer": {"admin": False, "viewer": False, "editor": False},
         }})
     @api_tools.endpoint_metrics
     def delete(self, project_id: int):
