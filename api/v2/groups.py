@@ -48,7 +48,6 @@ class API(api_tools.APIBase):  # pylint: disable=R0903
         "recommended_roles": {
             "administration": {"admin": True, "viewer": False, "editor": True},
             "default": {"admin": True, "viewer": False, "editor": True},
-            "developer": {"admin": True, "viewer": False, "editor": True},
         }})
     def put(self, project_id: int, **kwargs) -> tuple[dict, int]:
         raw = dict(request.json)
