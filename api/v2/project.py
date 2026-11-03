@@ -221,6 +221,9 @@ class AdminAPI(api_tools.APIModeHandler):
         data = request.json
         if not project_id:
             return {"message": "Specify project id"}, 400
+        refusal = _scim_refusal(self.module, project_id)
+        if refusal:
+            return refusal
         project = Project.query.get_or_404(project_id)
         if data["name"]:
             project.name = data["name"]
@@ -247,12 +250,27 @@ class AdminAPI(api_tools.APIModeHandler):
         }})
     @api_tools.endpoint_metrics
     def delete(self, project_id: int):
+        refusal = _scim_refusal(self.module, project_id)
+        if refusal:
+            return refusal
         user_ids = self.module.context.rpc_manager.call.admin_get_users_ids_in_project(project_id)
         self.module.context.event_manager.fire_event(
             "delete_project", {'project_id': project_id, 'user_ids': user_ids},
         )
         statuses = delete_project(project_id=project_id, module=self.module)
         return {'steps': statuses}, 200
+
+
+def _scim_refusal(module, project_id):
+    """ 403 while the project is managed by SCIM (#5202): its group in the IdP owns it """
+    try:
+        protected = module.context.rpc_manager.timeout(5).admin_scim_is_protected(project_id)
+    except Exception:  # pylint: disable=W0703
+        log.exception("SCIM protection check failed for project %s", project_id)
+        return {"message": "Could not check whether the project is managed by SCIM. Try again."}, 503
+    if protected:
+        return {"message": "This project is managed by SCIM: it can only be changed in the identity provider."}, 403
+    return None
 
 
 class API(api_tools.APIBase):  # pylint: disable=R0903
