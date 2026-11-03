@@ -261,15 +261,24 @@ class AdminAPI(api_tools.APIModeHandler):
         return {'steps': statuses}, 200
 
 
+SCIM_MANAGED = "This project is managed by SCIM: it can only be changed in the identity provider."
+
+
 def _scim_refusal(module, project_id):
-    """ 403 while the project is managed by SCIM (#5202): its group in the IdP owns it """
+    """ 403 while the project is managed by SCIM (#5202). The admin plugin runs in the same pylon: its
+        SCIM runtime is read in-process, so a deployment without it (or with SCIM off) protects nothing
+        and the two plugins can be deployed in any order. A check that fails is 503 (fail closed). """
+    admin = module.context.module_manager.modules.get("admin")
+    scim = getattr(getattr(admin, "module", None), "scim", None)
+    if scim is None:
+        return None
     try:
-        protected = module.context.rpc_manager.timeout(5).admin_scim_is_protected(project_id)
+        protected = scim.guards.is_protected(project_id)
     except Exception:  # pylint: disable=W0703
         log.exception("SCIM protection check failed for project %s", project_id)
         return {"message": "Could not check whether the project is managed by SCIM. Try again."}, 503
     if protected:
-        return {"message": "This project is managed by SCIM: it can only be changed in the identity provider."}, 403
+        return {"message": SCIM_MANAGED}, 403
     return None
 
 
