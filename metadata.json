@@ -1,6 +1,6 @@
 {
   "name": "Carrier Project RestAPI Plugin",
-  "version": "0.39",
+  "version": "0.40",
   "depends_on": [
     "auth",
     "shared",
