@@ -112,24 +112,16 @@ class RPC:
     @rpc_tools.wrap_exceptions(RuntimeError)
     @cachetools.cached(cache=this.module.user_projects_cache)
     def list_user_projects(self, user_id: int, include_suspended: bool = False, **kwargs) -> list:
-        all_projects = self.list(**kwargs)
+        # Resolve membership first so only the user's projects are loaded and paged
+        project_ids = self.context.rpc_manager.call.admin_list_user_project_ids(user_id)
+        if not project_ids:
+            return []
         #
-        user_projects = []
-        check_ids = []
-        project_map = {}
+        kwargs.pop("ids_", None)
+        if not include_suspended:
+            kwargs["filter_"] = {**(kwargs.get("filter_") or {}), "suspended": False}
         #
-        for project in all_projects:
-            if not include_suspended and project.get("suspended"):
-                continue
-            check_ids.append(project["id"])
-            project_map[project["id"]] = project
-        #
-        user_in_ids = self.context.rpc_manager.call.admin_check_user_in_projects(check_ids, user_id)
-        #
-        for project_id in user_in_ids:
-            user_projects.append(project_map[project_id])
-        #
-        return user_projects
+        return self.list(ids_=project_ids, **kwargs)
 
     @web.rpc("clear_user_projects_cache", "clear_user_projects_cache")
     @rpc_tools.wrap_exceptions(RuntimeError)
