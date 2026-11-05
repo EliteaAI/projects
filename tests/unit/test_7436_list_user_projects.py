@@ -98,6 +98,15 @@ def test_7436_a_caller_cannot_smuggle_a_foreign_ids_filter(listing):
     assert ids(listing.run(USER, ids_=[1])) == [2, 4, 5, 7, 8]
 
 
+# list_projects returns early for project_id without applying ids_ or the suspended filter, so a
+# caller passing it would get any project (even a foreign suspended one) back as a dict
+def test_7436_project_id_cannot_bypass_the_membership_filter(listing):
+    result = listing.run(USER, project_id=3)
+    assert isinstance(result, list)
+    assert ids(result) == [2, 4, 5, 7, 8]
+    assert all("project_id" not in call for call in listing.calls)
+
+
 def test_7436_list_projects_builds_one_where_for_ids_search_and_filter():
     source = PROJECT_MODEL.read_text()
     assert "Project.id.in_(ids_)" in source

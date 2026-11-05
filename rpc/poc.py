@@ -117,7 +117,9 @@ class RPC:
         if not project_ids:
             return []
         #
+        # project_id would take list_projects' single-row branch, which skips the membership filter
         kwargs.pop("ids_", None)
+        kwargs.pop("project_id", None)
         if not include_suspended:
             kwargs["filter_"] = {**(kwargs.get("filter_") or {}), "suspended": False}
         #
