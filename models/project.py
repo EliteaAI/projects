@@ -86,6 +86,7 @@ class Project(db_tools.AbstractBaseMixin, rpc_tools.RpcMixin, db.Base):
     def list_projects(project_id: int = None, search_: str = None,
                       limit_: int = None, offset_: int = None,
                       filter_: Optional[dict] = None,
+                      ids_: Optional[list] = None,
                       **kwargs) -> dict | list[dict] | None:
         flt = []
         if filter_ is not None:
@@ -101,12 +102,16 @@ class Project(db_tools.AbstractBaseMixin, rpc_tools.RpcMixin, db.Base):
                     return
 
                 return ProjectListModel.from_orm(p).dict()
-            elif search_:
-                stmt = select(Project).where(Project.name.ilike(f"%{search_}%")).limit(limit_).offset(offset_)
-            else:
-                stmt = select(Project).where(*flt).limit(limit_).offset(offset_)
-
-            stmt = stmt.order_by(asc(Project.id))
+            if ids_ is not None:
+                flt.append(Project.id.in_(ids_))
+            if search_:
+                flt.append(Project.name.ilike(f"%{search_}%"))
+            #
+            stmt = select(Project).where(*flt).order_by(asc(Project.id))
+            if limit_ is not None:
+                stmt = stmt.limit(int(limit_))
+            if offset_ is not None:
+                stmt = stmt.offset(int(offset_))
 
             projects = session.scalars(stmt.options(joinedload(Project.groups))).unique().all()
             return [ProjectListModel.from_orm(project).dict() for project in projects]
