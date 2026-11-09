@@ -140,9 +140,7 @@ class RPC:
             user_email: str,
             project_id: int,
             roles: list[str],
-            admin_grant: bool = False,
     ):
-        """ admin_grant: an ELITEA admin adds a project admin, allowed on SCIM-managed projects (#5202) """
         user = None
         user_email = user_email.lower()
         for i in auth.list_users():
@@ -164,7 +162,7 @@ class RPC:
                 }
             log.info('user %s found. adding to project', user)
             self.context.rpc_manager.call.admin_add_user_to_project(
-                project_id, user['id'], roles, admin_grant=admin_grant
+                project_id, user['id'], roles
             )
             return {
                 'msg': f'user {user["email"]} added to project {project_id}',
@@ -185,7 +183,7 @@ class RPC:
             auth.add_user_group(user_id, 1)
 
             self.context.rpc_manager.call.admin_add_user_to_project(
-                project_id, user_id, roles, admin_grant=admin_grant
+                project_id, user_id, roles
             )
             return {
                 'msg': f'user {user_email} created and added to project {project_id}',
