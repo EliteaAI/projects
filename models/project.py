@@ -49,6 +49,7 @@ ProjectGroupAssociation = Table(
 
 class Project(db_tools.AbstractBaseMixin, rpc_tools.RpcMixin, db.Base):
     __tablename__ = "project"
+    API_EXCLUDE_FIELDS = ("secrets_json",)
 
     id = Column(Integer, primary_key=True)
     name = Column(String(256), nullable=False)
