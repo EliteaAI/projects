@@ -1,3 +1,4 @@
+from datetime import timezone
 from typing import Union, Optional
 import redis
 import json
@@ -41,6 +42,18 @@ class RPC:
     # @rpc_tools.wrap_exceptions(RuntimeError)
     # def get_project_statistics(self, project_id):
     #     return Statistic.query.filter_by(project_id=project_id).first().to_json()
+
+    @web.rpc('project_get_created_at', 'get_created_at')
+    @rpc_tools.wrap_exceptions(RuntimeError)
+    def get_created_at(self, project_id: int) -> Optional[str]:
+        # The statistic row is created together with the project; start_time is naive UTC
+        with db.get_session() as session:
+            start_time = session.query(Statistic.start_time).filter(
+                Statistic.project_id == project_id
+            ).order_by(Statistic.id).limit(1).scalar()
+        if start_time is None:
+            return None
+        return start_time.replace(tzinfo=timezone.utc).isoformat()
 
     @web.rpc('projects_add_task_execution', 'add_task_execution')
     @rpc_tools.wrap_exceptions(RuntimeError)
