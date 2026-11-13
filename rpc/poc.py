@@ -65,7 +65,7 @@ def create_keycloak_user(user_email: str, *, rpc_manager, default_password: str 
 def create_personal_project(user_id: int,
                             module,
                             plugins: list = ('configuration', 'models'),
-                            roles: list = ('editor', 'viewer', 'monitor')
+                            roles: list = ('admin', 'editor', 'viewer')
                             ):
     project_name = PROJECT_PERSONAL_NAME_TEMPLATE.format(user_id=user_id)
     #
@@ -233,6 +233,26 @@ class RPC:
                     match = re.match(rf"^{system_user_email}$", user['email'])
                     if match:
                         return int(match.groups()[0])
+
+    @web.rpc("projects_get_private_project_owner", "get_private_project_owner")
+    @rpc_tools.wrap_exceptions(RuntimeError)
+    def get_private_project_owner(self, project_id: int, require_member: bool = True) -> int | None:
+        """ The owner of a private project, only when its name, owner_id and (unless not required) membership agree """
+        with db.with_project_schema_session(None) as session:
+            project = session.query(Project).where(Project.id == project_id).first()
+        #
+        if not project or not project.name.startswith(PROJECT_PERSONAL_NAME_PREFIX):
+            return None
+        #
+        user_id = project.name[len(PROJECT_PERSONAL_NAME_PREFIX):]
+        if not user_id.isdigit() or int(user_id) != project.owner_id:
+            return None
+        #
+        if require_member and \
+                not self.context.rpc_manager.call.admin_check_user_in_project(project.id, project.owner_id):
+            return None
+        #
+        return project.owner_id
 
     @web.rpc("projects_get_project_kind", "get_project_kind")
     @rpc_tools.wrap_exceptions(RuntimeError)
