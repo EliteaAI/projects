@@ -16,7 +16,7 @@ import cachetools
 from ..api.v2.project import delete_project
 from ..models.project import Project
 from ..models.pd.project import ProjectCreatePD
-from ..utils.project_steps import create_project
+from ..utils.project_steps import create_project, SYSTEM_AUDIT_CTX, audit_ctx_or_current
 from ..constants import (
     PROJECT_PERSONAL_NAME_PREFIX,
     PROJECT_PERSONAL_NAME_TEMPLATE,
@@ -88,7 +88,9 @@ def create_personal_project(user_id: int,
         context = {
             'project_model': project_model,
             'owner_id': user_id,
-            'roles': list(roles)
+            'roles': list(roles),
+            # Created on the user's first visit: nobody asked for it (#7504)
+            'audit_ctx': SYSTEM_AUDIT_CTX,
         }
         #
         try:
@@ -140,7 +142,9 @@ class RPC:
             user_email: str,
             project_id: int,
             roles: list[str],
+            audit_ctx=None,
     ):
+        audit_ctx = audit_ctx_or_current(audit_ctx)
         user = None
         user_email = user_email.lower()
         for i in auth.list_users():
@@ -162,7 +166,7 @@ class RPC:
                 }
             log.info('user %s found. adding to project', user)
             self.context.rpc_manager.call.admin_add_user_to_project(
-                project_id, user['id'], roles
+                project_id, user['id'], roles, audit_ctx=audit_ctx,
             )
             return {
                 'msg': f'user {user["email"]} added to project {project_id}',
@@ -177,13 +181,13 @@ class RPC:
             except Exception as e:
                 log.warning(f'Keycloak user cannot be created {e}')
 
-            user_id = auth.add_user(user_email)
+            user_id = auth.add_user(user_email, audit_ctx=audit_ctx)
             # auth.add_user_provider(user_id, user_name)
             auth.add_user_provider(user_id, user_email)
             auth.add_user_group(user_id, 1)
 
             self.context.rpc_manager.call.admin_add_user_to_project(
-                project_id, user_id, roles
+                project_id, user_id, roles, audit_ctx=audit_ctx,
             )
             return {
                 'msg': f'user {user_email} created and added to project {project_id}',
@@ -212,7 +216,7 @@ class RPC:
                             create_personal_project(user_id=user['id'], module=self)
                     elif not project.create_success:
                         with self.projects_lock:
-                            delete_project(project_id=project.id, module=self)
+                            delete_project(project_id=project.id, module=self, audit_ctx=SYSTEM_AUDIT_CTX)
                             create_personal_project(user_id=user['id'], module=self)
 
     @web.rpc("projects_get_personal_project_id", "get_personal_project_id")
@@ -295,7 +299,7 @@ class RPC:
 
     @web.rpc()
     @rpc_tools.wrap_exceptions(RuntimeError)
-    def create_project(self, project_name, plugins, admin_email, owner_id, roles):
+    def create_project(self, project_name, plugins, admin_email, owner_id, roles, audit_ctx=None):
         project_model = ProjectCreatePD(
             name=project_name,
             project_admin_email=admin_email,
@@ -306,6 +310,8 @@ class RPC:
             "project_model": project_model,
             "owner_id": owner_id,
             "roles": roles,
+            # Bootstrap of the public / support projects (#7504)
+            "audit_ctx": audit_ctx or SYSTEM_AUDIT_CTX,
         }
         #
         try:
