@@ -146,36 +146,16 @@ class RPC:
     ):
         audit_ctx = audit_ctx_or_current(audit_ctx)
         user_email = user_email.strip().casefold()
-        with db.with_project_schema_session(None) as session:
-            # Keep competing invites for this project serialized across pylon workers until
-            # both identity resolution and role assignment have completed.
-            session.query(Project.id).filter(
-                Project.id == project_id
-            ).with_for_update().first()
-
-            user = next(
-                (item for item in auth.list_users()
-                 if (item.get('email') or '').strip().casefold() == user_email),
-                None,
-            )
-            if user:
-                project_users = self.context.rpc_manager.call.admin_get_users_ids_in_project(project_id)
-                if user['id'] in project_users:
-                    return {
-                        'msg': f'user {user["email"]} already exists in project {project_id}',
-                        'status': 'error',
-                        'email': user["email"]
-                    }
-                log.info('user %s found. adding to project', user['id'])
-                self.context.rpc_manager.call.admin_add_user_to_project(
-                    project_id, user['id'], roles, audit_ctx=audit_ctx,
-                )
-                return {
-                    'msg': f'user {user["email"]} added to project {project_id}',
-                    'status': 'ok',
-                    'id': user['id'],
-                    'email': user["email"]
-                }
+        user = next(
+            (item for item in auth.list_users()
+             if (item.get('email') or '').strip().casefold() == user_email),
+            None,
+        )
+        created = False
+        if user:
+            user_id = user['id']
+            user_email = user['email']
+        else:
             log.info('creating user for project %s', project_id)
             try:
                 create_keycloak_user(user_email, rpc_manager=self.context.rpc_manager)
@@ -196,6 +176,7 @@ class RPC:
                 if not user:
                     raise create_error
                 user_id = user['id']
+                user_email = user['email']
                 log.info(
                     'Concurrent invitation resolved to user_id=%s project_id=%s',
                     user_id,
@@ -204,16 +185,29 @@ class RPC:
             else:
                 auth.add_user_provider(user_id, user_email)
                 auth.add_user_group(user_id, 1)
+                created = True
 
-            self.context.rpc_manager.call.admin_add_user_to_project(
-                project_id, user_id, roles, audit_ctx=audit_ctx,
-            )
-            return {
-                'msg': f'user {user_email} created and added to project {project_id}',
-                'status': 'ok',
-                'id': user_id,
-                'email': user_email
-            }
+        rpc = self.context.rpc_manager.call
+        with db.with_project_schema_session(None) as session:
+            # Keep the transaction open only for the membership check and grant.
+            session.query(Project.id).filter(
+                Project.id == project_id
+            ).with_for_update().first()
+            if user_id in rpc.admin_get_users_ids_in_project(project_id):
+                return {
+                    'msg': f'user {user_email} already exists in project {project_id}',
+                    'status': 'error',
+                    'email': user_email,
+                }
+            rpc.admin_add_user_to_project(project_id, user_id, roles, audit_ctx=audit_ctx)
+
+        action = 'created and added' if created else 'added'
+        return {
+            'msg': f'user {user_email} {action} to project {project_id}',
+            'status': 'ok',
+            'id': user_id,
+            'email': user_email,
+        }
 
     @web.rpc("projects_create_personal_project", "create_personal_project")
     @rpc_tools.wrap_exceptions(RuntimeError)
