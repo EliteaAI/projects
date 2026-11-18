@@ -17,12 +17,17 @@ from ...utils.project_steps import create_project, get_steps, ProjectCreateError
 from ...utils import project_steps
 
 
-def _audit_user(module, user_id):
+def _audit_users(module, user_ids):
+    """ {user_id: id / name / email} in one call; empty when it fails (events keep the ids) """
+    if not user_ids:
+        return {}
     try:
-        user = module.context.rpc_manager.timeout(5).auth_get_user(user_id=user_id)
-        return {"id": user_id, "name": user.get("name"), "email": user.get("email")}
+        users = module.context.rpc_manager.timeout(10).auth_list_users(user_ids=list(user_ids))
     except Exception:  # pylint: disable=W0703
-        return None
+        log.exception("Lifecycle audit: member names not read")
+        return {}
+    return {user["id"]: {"id": user["id"], "name": user.get("name"), "email": user.get("email")}
+            for user in users}
 
 
 def delete_project(project_id: int, module, audit_ctx=None) -> List[dict]:
@@ -44,7 +49,7 @@ def delete_project(project_id: int, module, audit_ctx=None) -> List[dict]:
         # The system user's removal is recorded by its own delete_user (SystemUser step)
         members = {int(k): v for k, v in members.items() if int(k) != system_user_id}
         audit_events = project_steps.delete_events(
-            project, members, lambda uid: _audit_user(module, uid), audit_ctx,
+            project, members, _audit_users(module, members), audit_ctx,
         )
 
         context = {
@@ -64,11 +69,16 @@ def delete_project(project_id: int, module, audit_ctx=None) -> List[dict]:
                 log.warning('step exc %s %s', repr(step), e)
             statuses.append(step.status['deleted'])
 
-        # Memberships live in auth_core and outlive the project; their removal is already audited above
-        try:
-            module.context.rpc_manager.timeout(30).auth_purge_project_memberships(project_id)
-        except Exception:  # pylint: disable=W0703
-            log.exception("Memberships of deleted project %s not purged", project_id)
+        # Memberships live in auth_core and outlive the project; their removal is already audited above.
+        # Only once the project row is gone: a failed delete keeps its members (and records no events)
+        session.expire_all()
+        if session.query(Project.id).where(Project.id == project_id).first() is not None:
+            log.error("Project %s was not deleted; its memberships are kept", project_id)
+        else:
+            try:
+                module.context.rpc_manager.timeout(30).auth_purge_project_memberships(project_id)
+            except Exception:  # pylint: disable=W0703
+                log.exception("Memberships of deleted project %s not purged", project_id)
 
         module.context.event_manager.fire_event('project_deleted', context['project'].to_json())
         return statuses

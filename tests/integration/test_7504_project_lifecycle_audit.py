@@ -288,7 +288,7 @@ def test_delete_records_project_and_each_member_once(env):
     members = {11: ["admin", "editor"], 12: ["viewer"]}
     users = {11: {"id": 11, "name": "Ann", "email": "ann@x"}, 12: {"id": 12, "name": "Bob", "email": "bob@x"}}
 
-    events = env.steps.delete_events(project, members, users.get, env.steps.SYSTEM_AUDIT_CTX)
+    events = env.steps.delete_events(project, members, users, env.steps.SYSTEM_AUDIT_CTX)
 
     assert [e["event_type"] for e in events] == [
         "project.deleted", "project.member_removed", "project.member_removed",
