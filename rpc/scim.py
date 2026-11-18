@@ -6,17 +6,19 @@ from tools import rpc_tools, db  # pylint: disable=E0401
 from ..models.pd.project import ProjectCreatePD
 from ..models.project import Project
 from ..utils.project_steps import create_project
+from ..utils import project_steps
 
 
 class RPC:  # pylint: disable=R0903
     @web.rpc("projects_scim_create")
     @rpc_tools.wrap_exceptions(RuntimeError)
-    def projects_scim_create(self, name: str, owner_id: int) -> int:
+    def projects_scim_create(self, name: str, owner_id: int, audit_ctx=None) -> int:
         """ A team project without a human admin; its members are added by the SCIM sync """
         context = {
             "project_model": ProjectCreatePD(name=name, project_admin_email=None, plugins=[]),
             "owner_id": owner_id,
             "roles": ["viewer"],
+            "audit_ctx": audit_ctx,
         }
         create_project(self, context)
         project_id = context["project"].id
@@ -25,11 +27,14 @@ class RPC:  # pylint: disable=R0903
 
     @web.rpc("projects_scim_set_suspended")
     @rpc_tools.wrap_exceptions(RuntimeError)
-    def projects_scim_set_suspended(self, project_id: int, suspended: bool) -> None:
+    def projects_scim_set_suspended(self, project_id: int, suspended: bool, audit_ctx=None) -> None:
         with db.get_session(None) as session:
             project = session.query(Project).where(Project.id == project_id).first()
             if project is None:
                 raise RuntimeError(f"Project {project_id} not found")
+            project_steps.audit_module().lifecycle_audit_record(session, project_steps.suspend_events(
+                project, suspended, project_steps.audit_ctx_or_current(audit_ctx),
+            ))
             project.suspended = bool(suspended)
             session.commit()
         try:

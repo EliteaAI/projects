@@ -65,6 +65,7 @@ def project_steps():
     tools.MinioClient = object
     tools.constants = types.SimpleNamespace(DEFAULT_MODE='default')
     tools.auth = None  # replaced per-test below
+    tools.this = types.SimpleNamespace(for_module=lambda name: None)  # #7504 audit writer lookup
 
     class ProjectCreationStep:
         all_steps = []

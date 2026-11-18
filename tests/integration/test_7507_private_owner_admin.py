@@ -98,7 +98,9 @@ def poc(monkeypatch):
     _stub(monkeypatch, f"{PACKAGE}.models.pd.project",
           ProjectCreatePD=lambda **kwargs: types.SimpleNamespace(**kwargs))
     _stub(monkeypatch, f"{PACKAGE}.utils.project_steps",
-          create_project=lambda module, context: state.created.append(context))
+          create_project=lambda module, context: state.created.append(context),
+          SYSTEM_AUDIT_CTX={"actor_type": "system", "source": "system"},
+          audit_ctx_or_current=lambda ctx: ctx)
     spec = importlib.util.spec_from_file_location(f"{PACKAGE}.constants", PLUGIN_ROOT / "constants.py")
     constants = importlib.util.module_from_spec(spec)
     monkeypatch.setitem(sys.modules, spec.name, constants)
@@ -127,6 +129,7 @@ def test_new_private_project_owner_gets_admin_editor_viewer(poc):
     assert sorted(state.created[0]["roles"]) == ["admin", "editor", "viewer"]
     assert state.created[0]["owner_id"] == 6
     assert state.created[0]["project_model"].project_admin_email == "user6@example.com"
+    assert state.created[0]["audit_ctx"]["actor_type"] == "system"  # #7504: created on visit, not by a user
 
 
 def test_verified_owner_is_returned(poc):

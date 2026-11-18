@@ -4,7 +4,7 @@ from typing import Optional
 from pylon.core.tools import log
 from sqlalchemy import schema
 from sqlalchemy.exc import NoResultFound
-from tools import db, VaultClient, auth, constants as c, MinioClient
+from tools import db, VaultClient, auth, constants as c, MinioClient, this
 
 from . import get_project_user
 from .helpers import ProjectCreationStep
@@ -17,6 +17,65 @@ from ..models.project import Project
 from ..models.quota import ProjectQuota
 from ..models.statistics import Statistic
 from ..tools.influx_tools import get_client
+
+# Lifecycle audit actor of changes no user asked for (#7504): private projects, project system users
+SYSTEM_AUDIT_CTX = {"actor_type": "system", "actor_id": None, "actor_name": "System",
+                    "actor_email": None, "source": "system", "request_id": None}
+
+
+class _NoAudit:  # pylint: disable=R0903
+    """ Stand-in writer while the admin plugin is not loaded: no audit event, the change goes on """
+
+    @staticmethod
+    def lifecycle_audit_record(session, events):
+        _ = session
+        if events:
+            log.warning("Lifecycle audit: admin plugin unavailable, %s event(s) not recorded", len(events))
+
+    @staticmethod
+    def lifecycle_audit_ctx(executing_user_id=None):
+        _ = executing_user_id
+        return dict(SYSTEM_AUDIT_CTX)
+
+
+def audit_module():
+    """ The admin plugin: owner of the lifecycle audit writer and builder """
+    try:
+        module = this.for_module("admin").module
+    except Exception:  # pylint: disable=W0703
+        module = None
+    return module if hasattr(module, "lifecycle_audit_record") else _NoAudit
+
+
+def audit_ctx_or_current(audit_ctx):
+    """ The caller's audit context, else the current request's (System outside a request) """
+    if audit_ctx is not None:
+        return audit_ctx
+    try:
+        return audit_module().lifecycle_audit_ctx()
+    except Exception:  # pylint: disable=W0703
+        log.exception("Lifecycle audit: actor context not read")
+        return dict(SYSTEM_AUDIT_CTX)
+
+
+def _audit_events():
+    """ The admin plugin's event builder (the single one), or None when admin is not loaded """
+    try:
+        from plugins.admin.utils.lifecycle_audit import events  # pylint: disable=C0415,E0401
+    except ImportError:
+        return None
+    return events
+
+
+def project_snapshot(project):
+    """ id / name of a project for an audit event; the builder derives its type """
+    return {"id": project.id, "name": project.name}
+
+
+def build_audit_event(event_type, audit_ctx, **kwargs):
+    """ One event, or None when the builder is unavailable (writers skip None) """
+    events = _audit_events()
+    return None if events is None else events.build(event_type, audit_ctx, "project", **kwargs)
 
 
 class ProjectModel(ProjectCreationStep):
@@ -57,7 +116,7 @@ class ProjectModel(ProjectCreationStep):
         log.info('after statistic created')
         return {'project': project}
 
-    def delete(self, project: Project, session, **kwargs) -> None:
+    def delete(self, project: Project, session, audit_events=None, **kwargs) -> None:
         session.query(Statistic).filter(Statistic.project_id == project.id).delete()
         session.commit()
         log.info('statistic deleted')
@@ -67,6 +126,9 @@ class ProjectModel(ProjectCreationStep):
         log.info('quota deleted')
 
         # session.query(Project).where(Project.id == project.id).delete()
+        if audit_events:
+            # Same commit as the project row (#7504)
+            audit_module().lifecycle_audit_record(session, audit_events)
         session.delete(project)
         session.commit()
         log.info('project deleted')
@@ -127,17 +189,18 @@ class SystemUser(ProjectCreationStep):
             ...
         user_name = PROJECT_USER_NAME_TEMPLATE.format(project.id)
         user_email = PROJECT_USER_EMAIL_TEMPLATE.format(project.id)
-        user_id = auth.add_user(user_email, user_name)
+        user_id = auth.add_user(user_email, user_name, audit_ctx=SYSTEM_AUDIT_CTX)
         auth.assign_user_to_role(
             user_id=user_id,
             role_name='system',
             mode=c.DEFAULT_MODE,
-            project_id=project.id
+            project_id=project.id,
+            audit_ctx=SYSTEM_AUDIT_CTX,
         )
         return {'system_user_id': user_id}
 
     def delete(self, system_user_id: int, **kwargs) -> None:
-        auth.delete_user(system_user_id)
+        auth.delete_user(system_user_id, audit_ctx=SYSTEM_AUDIT_CTX)
 
 
 class SystemToken(ProjectCreationStep):
@@ -276,7 +339,8 @@ class ProjectAdmin(ProjectCreationStep):
             self.module.add_user_to_project_or_create(
                 user_email=email,
                 project_id=project.id,
-                roles=roles
+                roles=roles,
+                audit_ctx=kwargs.get("audit_ctx"),
             )
 
     def delete(self, **kwargs) -> None:
@@ -342,6 +406,64 @@ class ProjectCreateError(Exception):
         self.rollback_progress = rollback_progress or []
 
 
+def rename_events(project, new_name, audit_ctx):
+    """ project.renamed when the name actually changes """
+    if not new_name or new_name == project.name:
+        return []
+    return [event for event in [build_audit_event(
+        "project.renamed", audit_ctx,
+        project=dict(project_snapshot(project), name=new_name),
+        changes={"name": {"before": project.name, "after": new_name}},
+    )] if event]
+
+
+def suspend_events(project, suspended, audit_ctx):
+    """ project.suspended / unsuspended when the flag actually changes """
+    before = bool(getattr(project, "suspended", False))
+    if before == bool(suspended):
+        return []
+    return [event for event in [build_audit_event(
+        "project.suspended" if suspended else "project.unsuspended", audit_ctx,
+        project=project_snapshot(project),
+        changes={"suspended": {"before": before, "after": bool(suspended)}},
+    )] if event]
+
+
+def delete_events(project, members, users, audit_ctx):
+    """ project.deleted plus one member_removed per member: the auth rows outlive the project silently
+
+    members: {user_id: [role names]} read before the delete; users: {user_id: snapshot}
+    """
+    snapshot = project_snapshot(project)
+    result = [build_audit_event(
+        "project.deleted", audit_ctx, project=snapshot,
+        details={"owner": {"id": project.owner_id}, "members": sorted(members)},
+    )]
+    for user_id, roles in sorted(members.items()):
+        result.append(build_audit_event(
+            "project.member_removed", audit_ctx, project=snapshot,
+            user=users.get(user_id) or {"id": user_id},
+            roles_before=sorted(roles), roles_after=[],
+            details={"reason": "project_deleted"},
+        ))
+    return [event for event in result if event]
+
+
+def _record_project_created(session, context):
+    """ project.created in the session that commits the project: owner and creator kept apart (AC-2) """
+    audit_ctx = audit_ctx_or_current(context.get("audit_ctx"))
+    project = context["project"]
+    event = build_audit_event(
+        "project.created", audit_ctx, project=project_snapshot(project),
+        details={
+            "owner": {"id": project.owner_id},
+            "creator": {"id": audit_ctx.get("actor_id"), "name": audit_ctx.get("actor_name")},
+        },
+    )
+    if event:
+        audit_module().lifecycle_audit_record(session, [event])
+
+
 def create_project(module, context: dict, rollback_on_error: bool = True) -> list:
     progress = []
     with db.with_project_schema_session(None) as session:
@@ -365,6 +487,7 @@ def create_project(module, context: dict, rollback_on_error: bool = True) -> lis
                     rollback_progress.append(step)
             raise ProjectCreateError(progress, rollback_progress)
         context['project'].create_success = True
+        _record_project_created(session, context)
         session.commit()
         module.context.event_manager.fire_event('project_created', context['project'].to_json())
     return progress

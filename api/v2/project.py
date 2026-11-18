@@ -14,23 +14,50 @@ from ...models.project import Project
 
 from ...utils import get_project_user
 from ...utils.project_steps import create_project, get_steps, ProjectCreateError
+from ...utils import project_steps
 
 
-def delete_project(project_id: int, module) -> List[dict]:
+def _audit_users(module, user_ids):
+    """ {user_id: id / name / email} in one call; empty when it fails (events keep the ids) """
+    if not user_ids:
+        return {}
+    try:
+        users = module.context.rpc_manager.timeout(10).auth_list_users(user_ids=list(user_ids))
+    except Exception:  # pylint: disable=W0703
+        log.exception("Lifecycle audit: member names not read")
+        return {}
+    return {user["id"]: {"id": user["id"], "name": user.get("name"), "email": user.get("email")}
+            for user in users}
+
+
+def delete_project(project_id: int, module, audit_ctx=None) -> List[dict]:
     with db.with_project_schema_session(None) as session:
         project = session.query(Project).where(Project.id == project_id).first()
         if not project:
             return None, 404
+        # Read before the steps run: membership is in auth_core and survives the project (#7504)
+        audit_ctx = project_steps.audit_ctx_or_current(audit_ctx)
+        try:
+            members = module.context.rpc_manager.call.admin_get_users_roles_in_project(project_id) or {}
+        except Exception:  # pylint: disable=W0703
+            log.exception("Lifecycle audit: members of project %s not read", project_id)
+            members = {}
         try:
             system_user_id = get_project_user(project.id)['id']
         except (RuntimeError, KeyError, NoResultFound):
             system_user_id = None
+        # The system user's removal is recorded by its own delete_user (SystemUser step)
+        members = {int(k): v for k, v in members.items() if int(k) != system_user_id}
+        audit_events = project_steps.delete_events(
+            project, members, _audit_users(module, members), audit_ctx,
+        )
 
         context = {
             'project': project,
             'vault_client': VaultClient.from_project(project),
             'system_user_id': system_user_id,
-            'session': session
+            'session': session,
+            'audit_events': audit_events,
         }
 
         statuses: List[dict] = []
@@ -41,6 +68,17 @@ def delete_project(project_id: int, module) -> List[dict]:
             except Exception as e:
                 log.warning('step exc %s %s', repr(step), e)
             statuses.append(step.status['deleted'])
+
+        # Memberships live in auth_core and outlive the project; their removal is already audited above.
+        # Only once the project row is gone: a failed delete keeps its members (and records no events)
+        session.expire_all()
+        if session.query(Project.id).where(Project.id == project_id).first() is not None:
+            log.error("Project %s was not deleted; its memberships are kept", project_id)
+        else:
+            try:
+                module.context.rpc_manager.timeout(30).auth_purge_project_memberships(project_id)
+            except Exception:  # pylint: disable=W0703
+                log.exception("Memberships of deleted project %s not purged", project_id)
 
         module.context.event_manager.fire_event('project_deleted', context['project'].to_json())
         return statuses
@@ -179,7 +217,8 @@ class AdminAPI(api_tools.APIModeHandler):
         context = {
             'project_model': project_model,
             'owner_id': g.auth.id,
-            'roles': ['admin', ]
+            'roles': ['admin', ],
+            'audit_ctx': project_steps.audit_ctx_or_current(None),
         }
 
         progress = []
@@ -221,15 +260,22 @@ class AdminAPI(api_tools.APIModeHandler):
         data = request.json
         if not project_id:
             return {"message": "Specify project id"}, 400
-        project = Project.query.get_or_404(project_id)
-        if data["name"]:
-            project.name = data["name"]
-        if data["owner"]:
-            project.owner = data["owner"]
-        if data["plugins"]:
-            project.plugins = data["plugins"]
-        project.commit()
-        return project.to_json(exclude_fields=Project.API_EXCLUDE_FIELDS), 200
+        with db.with_project_schema_session(None) as session:
+            project = session.query(Project).where(Project.id == project_id).first()
+            if project is None:
+                return {"message": "Project not found"}, 404
+            audit_events = project_steps.rename_events(
+                project, data.get("name"), project_steps.audit_ctx_or_current(None),
+            )
+            if data["name"]:
+                project.name = data["name"]
+            if data["owner"]:
+                project.owner = data["owner"]
+            if data["plugins"]:
+                project.plugins = data["plugins"]
+            project_steps.audit_module().lifecycle_audit_record(session, audit_events)
+            session.commit()
+            return project.to_json(exclude_fields=Project.API_EXCLUDE_FIELDS), 200
 
     @register_openapi(
         name="Delete Project",
